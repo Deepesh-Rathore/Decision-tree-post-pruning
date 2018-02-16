@@ -4,14 +4,19 @@ import pandas as pd
 import math
 import random
 import copy
+import sys
 
 warnings.simplefilter("ignore")
 
-trainPath = "D:/MyStudy/UTD/sem2/ML/Assignment/assign 2/training_set.csv"
-testPath = "D:/MyStudy/UTD/sem2/ML/Assignment/assign 2/test_set.csv"
-validationPath = "D:/MyStudy/UTD/sem2/ML/Assignment/assign 2/validation_set.csv"
-pruneFactor = 0.1
-pruneNum = 0
+
+if(len(sys.argv) != 5):
+    sys.exit("Please give the required amount of arguments - <trainPath> <testPath> <validationPath> <PruneFactor>")
+else:
+    trainPath = sys.argv[1]
+    testPath = sys.argv[2]
+    validationPath = sys.argv[3]
+    pruneFactor = float(sys.argv[4])
+
 df = pd.read_csv(trainPath)
 dtest = pd.read_csv(testPath)
 dvalidation = pd.read_csv(validationPath)
@@ -21,9 +26,9 @@ df = df.dropna()
 dtest = dtest.dropna()
 dvalidation = dvalidation.dropna()
 
-nodeCount = 0
-countOfNodes = 0
-countOfLeaf = 0
+nodeCount = 0 # for node id
+
+print("Please wait to complete!")
 
 def entropyCalculator(labels):
     total = labels.shape[0]
@@ -82,7 +87,7 @@ class Node():
         self.value = value
         self.positiveCount = positiveCount
         self.negativeCount = negativeCount
-		
+
 class Tree():
     def __init__(self):
         self.root = Node()
@@ -90,21 +95,16 @@ class Tree():
         
     def createDecisionTree(self, data, tree):
         global nodeCount
-#        global countOfNodes
-#        global countOfLeaf
         total = data.shape[0]
-        if total == 0:
-            return
         ones = data['Class'].sum()
-        zeros = total - ones
+        zeros = total - ones        
         if data.shape[1] == 1 or total == ones or total == zeros:
             tree.nodeType = 'L'
-#            countOfLeaf += 1
             if zeros >= ones:
                 tree.label = 0
             else:
                 tree.label = 1
-            return
+            return        
         else:        
             bestAttribute = findBestAttribute(data)
             tree.left = Node()
@@ -160,45 +160,23 @@ class Tree():
             return self.predictLabel(data, root.left)
 
     def countNodes(self,node):
-        global countOfNodes
-
-        if(node.left is not None and node.right is None):
-            countOfNodes = countOfNodes+1
-            self.countNodes(node.left)
-        if(node.right is not None and node.left is None):
-            countOfNodes = countOfNodes+1
-            self.countNodes(node.right)
         if(node.left is not None and node.right is not None):
-            countOfNodes = countOfNodes+1
-            self.countNodes(node.left)
-            countOfNodes = countOfNodes+1
-            self.countNodes(node.right)
-        return countOfNodes
+            return 2 + self.countNodes(node.left) + self.countNodes(node.right)
+        return 0
+
     
     def countLeaf(self,node):
-        global countOfLeaf
-        
-        if(node.nodeType == "L"):
-            countOfLeaf = countOfLeaf+1
-        else:
-            if(node.left is not None and node.right is None):
-                self.countLeaf(node.left)
-            if(node.right is not None and node.left is None):
-                self.countLeaf(node.right)
-            if(node.left is not None and node.right is not None):
-                self.countLeaf(node.left)
-                self.countLeaf(node.right)
-        return countOfLeaf
+        if(node.left is None and node.right is None):
+            return 1
+        return self.countLeaf(node.left) + self.countLeaf(node.right)
 
 def searchNode(tree, x):
     tmp = None
     res = None
-    
     if(tree.nodeType != "L"):
         if(tree.nodeId == x):
             return tree
         else:
-            
             res = searchNode(tree.left,x)
             if (res is None):
                 res = searchNode(tree.right,x)
@@ -209,10 +187,7 @@ def searchNode(tree, x):
 def postPruning(pNum,newTree):
     
     for i in range(pNum):
-        global countOfNodes
-        countOfNodes=0
-        x = random.randint(1,pruneTree.countNodes(pruneTree.root)-1)
-        print("x= {}".format(x))
+        x = random.randint(2,pruneTree.countNodes(pruneTree.root)-1)
         tempNode = Node()
         tempNode = searchNode(newTree,x)
 
@@ -233,13 +208,33 @@ def calculateAccuracy(data, tree):
             correctCount = correctCount + 1
     return correctCount/data.shape[0]*100
 
-
-
-
-
-
 dtree = Tree()
 dtree.createDecisionTree(df, dtree.root)
+
+maxAccuracy = calculateAccuracy(dvalidation, dtree)
+bestTree = copy.deepcopy(dtree)
+countOfNodes = bestTree.countNodes(bestTree.root)
+c = 0
+
+while c < 10:    
+    c += 1
+    pruneNum = round(countOfNodes*pruneFactor)
+#     print(pruneNum)
+    pruneTree = Tree()
+    pruneTree = copy.deepcopy(bestTree)
+    postPruning(pruneNum,pruneTree.root)
+    temp = calculateAccuracy(dvalidation, pruneTree)
+    if temp > maxAccuracy:
+#         print("Accuracy Improved")
+        maxAccuracy = temp
+        bestTree = copy.deepcopy(pruneTree)
+        countOfNodes = bestTree.countNodes(bestTree.root)
+        
+
+
+print("-------------------------------------")
+print("Pre-Pruned Tree")
+print("-------------------------------------")
 dtree.printTree(dtree.root)
 
 print("")
@@ -248,9 +243,7 @@ print("Pre-Pruned Accuracy")
 print("-------------------------------------")
 print("Number of training instances = " +str(df.shape[0]))
 print("Number of training attributes = " +str(df.shape[1] -1))
-countOfNodes=0
 print("Total number of nodes in the tree = "+ str(dtree.countNodes(dtree.root)))
-countOfLeaf=0
 print("Number of leaf nodes in the tree = " +str(dtree.countLeaf(dtree.root)))
 print("Accuracy of the model on the training dataset = " + str(calculateAccuracy(df,dtree))+"%")
 print("")
@@ -262,22 +255,11 @@ print("Number of testing instances = "+str(dtest.shape[0]))
 print("Number of testing attributes = "+str(dtest.shape[1]-1))
 print("Accuracy of the model on the testing dataset = "+ str(calculateAccuracy(dtest,dtree))+"%")
 
-pruneNum = round(countOfNodes*pruneFactor)
-print(pruneNum)
-pruneTree = Tree()
-pruneTree = copy.deepcopy(dtree)
-postPruning(pruneNum,pruneTree.root)
-pruneTree.printTree(pruneTree.root)
-
-# print("Post-Pruned Accuracy")
-# print("-------------------------------------")
-# countOfNodes=0
-# print("Total number of nodes in the tree = "+ str(pruneTree.countNodes(pruneTree.root)))
-# countOfLeaf =0
-# print("Number of leaf nodes in the tree = " +str(pruneTree.countLeaf(pruneTree.root)))
-# print("")
-# print("-------------------------------------")
-# print("")
+print("")
+print("-------------------------------------")
+print("Post-Pruned Tree")
+print("-------------------------------------")
+bestTree.printTree(bestTree.root)
 
 print("")
 print("-------------------------------------")
@@ -285,18 +267,19 @@ print("Post-Pruned Accuracy")
 print("-------------------------------------")
 print("Number of training instances = " + str(df.shape[0]))
 print("Number of training attributes = " + str(df.shape[1] - 1))
-countOfNodes = 0
-print("Total number of nodes in the tree = " + str(pruneTree.countNodes(pruneTree.root)))
-countOfLeaf = 0
-print("Number of leaf nodes in the tree = " + str(pruneTree.countLeaf(pruneTree.root)))
-print("Accuracy of the model on the training dataset = " + str(calculateAccuracy(df, pruneTree)) + "%")
+print("Total number of nodes in the tree = " + str(bestTree.countNodes(bestTree.root)))
+print("Number of leaf nodes in the tree = " + str(bestTree.countLeaf(bestTree.root)))
+print("Accuracy of the model on the training dataset = " + str(calculateAccuracy(df, bestTree)) + "%")
 print("")
 print("Number of validation instances = " + str(dvalidation.shape[0]))
 print("Number of validation attributes = " + str(dvalidation.shape[1] - 1))
-print("Accuracy of the model on the validation dataset after pruning = " + str(
-    calculateAccuracy(dvalidation, pruneTree)) + "%")
+print("Accuracy of the model on the validation dataset after pruning = " + str(calculateAccuracy(dvalidation, bestTree)) + "%")
 print("")
 print("Number of testing instances = " + str(dtest.shape[0]))
 print("Number of testing attributes = " + str(dtest.shape[1] - 1))
-print("Accuracy of the model on the testing dataset = " + str(calculateAccuracy(dtest, pruneTree)) + "%")
-
+print("Accuracy of the model on the testing dataset = " + str(calculateAccuracy(dtest, bestTree)) + "%")
+print("")
+if(maxAccuracy > calculateAccuracy(dvalidation, dtree)):
+    print("Successfully Pruned with improvement in Accuracy on validation data set.")
+else:
+    print("Pruned but Accuracy didn't improved after 10 attempts so returning same tree.")
